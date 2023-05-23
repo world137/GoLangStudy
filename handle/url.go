@@ -2,9 +2,12 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
+	"strconv"
+	"strings"
 )
 
 type Course struct {
@@ -48,7 +51,63 @@ func getNextID() int {
 	}
 	return maxId + 1
 }
+func findID(ID int) (*Course, int) {
+	for i, course := range CourseList {
+		if course.ID == ID {
+			return &course, i
+		}
+	}
+	return nil, 0
+}
 func courseHandler(w http.ResponseWriter, r *http.Request) {
+	urlPathSegment := strings.Split(r.URL.Path, "course/")
+	ID, err := strconv.Atoi(urlPathSegment[len(urlPathSegment)-1])
+	if err != nil {
+		log.Print(err)
+		w.WriteHeader(http.StatusNotFound)
+		return
+	}
+	course, index := findID(ID)
+	if course == nil {
+		http.Error(w, fmt.Sprint("coures not found : %d", ID), http.StatusNotFound)
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		courseJSON, err := json.Marshal(course)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(courseJSON)
+
+	case http.MethodPut:
+		var updateCoures Course
+		bytebody, err := ioutil.ReadAll(r.Body)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		err = json.Unmarshal(bytebody, &updateCoures)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		if updateCoures.ID != ID {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		course = &updateCoures
+		CourseList[index] = *course
+		w.WriteHeader(http.StatusOK)
+		return
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}
+}
+
+func coursesHandler(w http.ResponseWriter, r *http.Request) {
 	courseJSON, err := json.Marshal(CourseList)
 	switch r.Method {
 	case http.MethodGet:
@@ -83,6 +142,7 @@ func courseHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	http.HandleFunc("/course", courseHandler)
+	http.HandleFunc("/course/", courseHandler)
+	http.HandleFunc("/course", coursesHandler)
 	http.ListenAndServe(":5000", nil)
 }
